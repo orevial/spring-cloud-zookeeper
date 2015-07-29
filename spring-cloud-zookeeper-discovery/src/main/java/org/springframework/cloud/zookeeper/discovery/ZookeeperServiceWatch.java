@@ -7,9 +7,7 @@ import javax.annotation.PreDestroy;
 import lombok.SneakyThrows;
 
 import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.recipes.cache.PathChildrenCache;
-import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
-import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
+import org.apache.curator.framework.recipes.cache.*;
 import org.springframework.cloud.client.discovery.event.HeartbeatEvent;
 import org.springframework.cloud.client.discovery.event.InstanceRegisteredEvent;
 import org.springframework.context.ApplicationEventPublisher;
@@ -20,14 +18,14 @@ import org.springframework.context.ApplicationListener;
  * @author Spencer Gibb
  */
 public class ZookeeperServiceWatch implements
-		ApplicationListener<InstanceRegisteredEvent>, PathChildrenCacheListener,
+		ApplicationListener<InstanceRegisteredEvent>, TreeCacheListener,
 		ApplicationEventPublisherAware {
 
 	private final CuratorFramework curator;
 	private final ZookeeperDiscoveryProperties properties;
 	private final AtomicLong cacheChange = new AtomicLong(0);
 	private ApplicationEventPublisher publisher;
-	private PathChildrenCache cache;
+	private TreeCache cache;
 
 	public ZookeeperServiceWatch(CuratorFramework curator,
 			ZookeeperDiscoveryProperties properties) {
@@ -43,7 +41,7 @@ public class ZookeeperServiceWatch implements
 	@Override
 	@SneakyThrows
 	public void onApplicationEvent(InstanceRegisteredEvent event) {
-		cache = new PathChildrenCache(curator, properties.getRoot(), false);
+		cache = TreeCache.newBuilder(curator, properties.getRoot()).build();
 		cache.getListenable().addListener(this);
 		cache.start();
 	}
@@ -56,9 +54,12 @@ public class ZookeeperServiceWatch implements
 	}
 
 	@Override
-	public void childEvent(CuratorFramework client, PathChildrenCacheEvent event)
-			throws Exception {
-		long newCacheChange = cacheChange.incrementAndGet();
-		publisher.publishEvent(new HeartbeatEvent(this, newCacheChange));
+	public void childEvent(CuratorFramework client, TreeCacheEvent event) throws Exception {
+		if (event.getType().equals(TreeCacheEvent.Type.NODE_ADDED)
+				|| event.getType().equals(TreeCacheEvent.Type.NODE_REMOVED)
+				|| event.getType().equals(TreeCacheEvent.Type.NODE_UPDATED)) {
+			long newCacheChange = cacheChange.incrementAndGet();
+			publisher.publishEvent(new HeartbeatEvent(this, newCacheChange));
+		}
 	}
 }
